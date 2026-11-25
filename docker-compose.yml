@@ -1,0 +1,25 @@
+services:
+  redis: { image: redis:7-alpine }
+  ai-service:            # Faster-Whisper STT + Piper TTS + multilingual embeddings
+    build: ./ai-service
+    ports: ["8000:8000"]
+  asterisk:
+    image: andrius/asterisk:latest
+    network_mode: host   # simplest for SIP/RTP (10000-10100/udp)
+    volumes:
+      - ./asterisk:/etc/asterisk
+      - sounds:/var/lib/asterisk/sounds/va
+      - rec:/var/spool/asterisk/recording
+  backend:
+    build: ./backend
+    env_file: .env
+    environment: { REDIS_URL: "redis://redis:6379", AI_URL: "http://ai-service:8000", ARI_URL: "http://host.docker.internal:8088" }
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["4000:4000"]
+    volumes: [ "sounds:/sounds", "rec:/recordings" ]
+    depends_on: [redis, ai-service]
+  dashboard:
+    build: ./dashboard
+    ports: ["5173:5173"]
+    depends_on: [backend]
+volumes: { sounds: {}, rec: {} }

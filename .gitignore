@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+ai-service/venv/
+__pycache__/
+*.pyc
+
+# Production Builds
+dashboard/dist/
+dist/
+
+# Environment and Secrets
+.env
+*.local
+
+# Model binaries (downloaded during docker build)
+*.onnx
+
+# System & Cache
+.DS_Store
+dump.rdb
+*.log
