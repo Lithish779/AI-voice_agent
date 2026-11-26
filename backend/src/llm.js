@@ -97,11 +97,16 @@ export async function groq(messages, json = false) {
   try {
     const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
+      },
       body: JSON.stringify({
-        model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+        model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
         messages,
-        temperature: 0.3,
+        temperature: 0.2,
+        max_tokens: 300,
         ...(json && { response_format: { type: 'json_object' } }),
       }),
     });

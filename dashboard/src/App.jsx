@@ -1017,7 +1017,7 @@ function CustomerCallView() {
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         setStatusText('Listening... (pause to send)');
 
-        const waitMs = isFinal ? 2000 : 3500;
+        const waitMs = isFinal ? 600 : 1200;
         silenceTimerRef.current = setTimeout(() => {
           const textToSend = latestTranscriptRef.current.trim();
           if (textToSend && inCallRef.current && !isSpeakingRef.current) {
