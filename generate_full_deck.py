@@ -698,7 +698,7 @@ def build_presentation():
     p_b1.font.color.rgb = AMBER
 
     p_b2 = tf_b.add_paragraph()
-    p_b2.text = "• Live Customer Voice Portal: https://informative-worker-ties-linux.trycloudflare.com/call\n• Live Staff Operations Console: https://informative-worker-ties-linux.trycloudflare.com/staff\n• GitHub Source Repository: https://github.com/Lithish779/AI-voice_agent"
+    p_b2.text = "• Live Customer Voice Portal: https://smart-arena-glucose-statutes.trycloudflare.com/call\n• Live Staff Operations Console: https://smart-arena-glucose-statutes.trycloudflare.com/staff\n• GitHub Source Repository: https://github.com/Lithish779/AI-voice_agent"
     p_b2.font.size = Pt(11)
     p_b2.font.color.rgb = TEXT_WHITE
     p_b2.space_before = Pt(4)
