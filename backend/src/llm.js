@@ -105,8 +105,8 @@ export async function groq(messages, json = false) {
       body: JSON.stringify({
         model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
         messages,
-        temperature: 0.2,
-        max_tokens: 300,
+        temperature: 0.1,
+        max_tokens: 160,
         ...(json && { response_format: { type: 'json_object' } }),
       }),
     });

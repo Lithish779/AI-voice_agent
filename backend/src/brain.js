@@ -15,9 +15,11 @@ async function history(callId) {
 }
 
 export async function handleTurn(callId, text, caller = 'web') {
+  const isShortGreeting = text.trim().split(/\s+/).length <= 2 && /^(hi|hello|hey|yes|no|sure|okay|yep|thanks|thank you|bye)/i.test(text.trim());
+
   const [hist, docs, cust] = await Promise.all([
     history(callId),
-    retrieve(text, 3).catch(() => []),
+    isShortGreeting ? Promise.resolve([]) : retrieve(text, 2).catch(() => []),
     Customer.findOne({ phone: caller }).lean().catch(() => null),
   ]);
 

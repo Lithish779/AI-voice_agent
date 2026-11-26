@@ -766,8 +766,37 @@ function KB() {
   );
 }
 
-// High-fidelity neural audio player with multi-fallback for desktop & mobile browsers
-async function playNeuralTTS(text, existingAudio = null) {
+// High-performance voice player: Instant browser neural speech (30ms start) or Piper ONNX server WAV
+function getBestNaturalVoice() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  return (
+    voices.find(v => (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Siri') || v.name.includes('Daniel') || v.name.includes('Karen') || v.name.includes('Premium')) && v.lang.startsWith('en')) ||
+    voices.find(v => v.lang.startsWith('en')) ||
+    voices[0] || null
+  );
+}
+
+export function playInstantVoice(text) {
+  if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return Promise.resolve();
+  return new Promise((resolve) => {
+    try {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1.06; // natural conversational pacing
+      utter.pitch = 1.0;
+      const v = getBestNaturalVoice();
+      if (v) utter.voice = v;
+      utter.onend = () => resolve();
+      utter.onerror = () => resolve();
+      window.speechSynthesis.speak(utter);
+    } catch {
+      resolve();
+    }
+  });
+}
+
+export async function playNeuralTTS(text, existingAudio = null) {
   if (!text) return;
   try {
     const res = await fetch('/api/voice/tts', {
@@ -787,23 +816,17 @@ async function playNeuralTTS(text, existingAudio = null) {
       });
     }
   } catch (err) {
-    console.warn('Backend neural TTS error, falling back to Web Speech API:', err);
+    console.warn('Backend neural TTS error, falling back to instant speech:', err);
   }
+  return playInstantVoice(text);
+}
 
-  // Fallback to browser SpeechSynthesis
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    return new Promise((resolve) => {
-      try {
-        window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.onend = () => resolve();
-        utter.onerror = () => resolve();
-        window.speechSynthesis.speak(utter);
-      } catch {
-        resolve();
-      }
-    });
+export async function playAgentVoice(text, existingAudio = null, mode = 'instant') {
+  if (!text) return;
+  if (mode === 'instant') {
+    return playInstantVoice(text);
   }
+  return playNeuralTTS(text, existingAudio);
 }
 
 // ==========================================
@@ -821,7 +844,7 @@ function Chat() {
     setInCall(true);
     const greeting = 'Hello, thanks for calling Acme Solar! How can I help you today?';
     setLog([{ r: 'Agent', x: greeting }]);
-    playNeuralTTS(greeting, audioRef.current);
+    playAgentVoice(greeting, audioRef.current, 'instant');
   };
 
   const endVoiceCall = () => {
@@ -840,7 +863,7 @@ function Chat() {
     try {
       const res = await api('/chat', 'POST', { callId: id, text: userText });
       setLog((prev) => [...prev, { r: 'Agent', x: res.reply }]);
-      playNeuralTTS(res.reply, audioRef.current);
+      playAgentVoice(res.reply, audioRef.current, 'instant');
     } catch (e) {
       setLog((prev) => [...prev, { r: 'System', x: 'Error: ' + e.message }]);
     }
@@ -893,6 +916,7 @@ function CustomerCallView() {
   const [statusText, setStatusText] = useState('Ready');
   const [callSummary, setCallSummary] = useState(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceMode, setVoiceMode] = useState('instant'); // 'instant' (phone speed) or 'piper' (server WAV)
 
   // Optional caller information
   const [callerName, setCallerName] = useState('');
@@ -929,7 +953,7 @@ function CustomerCallView() {
     }
 
     try {
-      await playNeuralTTS(text, activeAudioRef.current);
+      await playAgentVoice(text, activeAudioRef.current, voiceMode);
     } catch (e) {
       console.warn('Playback error:', e);
     } finally {
@@ -1003,7 +1027,16 @@ function CustomerCallView() {
       recognizer.lang = 'en-US';
 
       recognizer.onresult = (event) => {
-        if (isSpeakingRef.current) return;
+        // Full duplex barge-in: If caller starts speaking while agent is speaking, cut off agent speech immediately!
+        if (isSpeakingRef.current) {
+          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+          if (activeAudioRef.current) {
+            try { activeAudioRef.current.pause(); } catch { }
+          }
+          setIsSpeaking(false);
+          isSpeakingRef.current = false;
+        }
+
         let transcript = '';
         let isFinal = false;
         for (let i = 0; i < event.results.length; i++) {
@@ -1015,9 +1048,10 @@ function CustomerCallView() {
         setCurrentSpeech(transcript);
 
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        setStatusText('Listening... (pause to send)');
+        setStatusText('Listening...');
 
-        const waitMs = isFinal ? 600 : 1200;
+        // Normal call speed: when isFinal is true (speech paused), wait only 200ms before sending!
+        const waitMs = isFinal ? 200 : 700;
         silenceTimerRef.current = setTimeout(() => {
           const textToSend = latestTranscriptRef.current.trim();
           if (textToSend && inCallRef.current && !isSpeakingRef.current) {
@@ -1131,6 +1165,46 @@ function CustomerCallView() {
             boxSizing: 'border-box',
           }}
         >
+          {/* Mode Switcher */}
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 9999, padding: 3, gap: 4, border: '1px solid #e2e8f0' }}>
+              <button
+                type="button"
+                onClick={() => setVoiceMode('instant')}
+                style={{
+                  border: 'none',
+                  background: voiceMode === 'instant' ? '#10b981' : 'transparent',
+                  color: voiceMode === 'instant' ? '#ffffff' : '#64748b',
+                  padding: '5px 14px',
+                  borderRadius: 9999,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                ⚡ Real-Time Call (Fastest)
+              </button>
+              <button
+                type="button"
+                onClick={() => setVoiceMode('piper')}
+                style={{
+                  border: 'none',
+                  background: voiceMode === 'piper' ? '#0284c7' : 'transparent',
+                  color: voiceMode === 'piper' ? '#ffffff' : '#64748b',
+                  padding: '5px 14px',
+                  borderRadius: 9999,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                🎙️ Piper ONNX (Server)
+              </button>
+            </div>
+          </div>
+
           {/* Box 1: Name Input */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -1274,6 +1348,9 @@ function CustomerCallView() {
             />
             <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>
               {isSpeaking ? 'AGENT SPEAKING 🔊' : statusText.toUpperCase()}
+            </span>
+            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 9999, background: voiceMode === 'instant' ? '#dcfce7' : '#e0f2fe', color: voiceMode === 'instant' ? '#15803d' : '#0369a1', fontWeight: 700 }}>
+              {voiceMode === 'instant' ? '⚡ 0ms Lag' : '🎙️ Piper WAV'}
             </span>
           </div>
           <div style={{ background: '#f1f5f9', color: '#0f172a', padding: '5px 14px', borderRadius: 9999, fontSize: 13, fontWeight: 800 }}>
