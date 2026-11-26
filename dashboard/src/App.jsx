@@ -926,6 +926,7 @@ function CustomerCallView() {
   const activeAudioRef = useRef(null);
   const silenceTimerRef = useRef(null);
   const latestTranscriptRef = useRef('');
+  const lastSubmittedTextRef = useRef('');
   const inCallRef = useRef(false);
   const isSpeakingRef = useRef(false);
   inCallRef.current = inCall;
@@ -947,35 +948,57 @@ function CustomerCallView() {
     isSpeakingRef.current = true;
     setStatusText('Agent speaking...');
 
-    // Temporarily pause recognition so agent speaker output isn't transcribed
+    // Hard stop microphone during speech output
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch { }
     }
+    latestTranscriptRef.current = '';
+    setCurrentSpeech('');
 
     try {
       await playAgentVoice(text, activeAudioRef.current, voiceMode);
     } catch (e) {
       console.warn('Playback error:', e);
     } finally {
-      setIsSpeaking(false);
-      isSpeakingRef.current = false;
-      setStatusText('Listening...');
-      // Resume listening
-      if (inCallRef.current && recognitionRef.current) {
-        try { recognitionRef.current.start(); } catch { }
-      }
+      // 800ms acoustic echo cooldown to allow room sound to completely decay
+      setTimeout(() => {
+        if (inCallRef.current) {
+          setIsSpeaking(false);
+          isSpeakingRef.current = false;
+          setStatusText('Listening... (5s pause to finish question)');
+          latestTranscriptRef.current = '';
+          setCurrentSpeech('');
+          if (recognitionRef.current) {
+            try { recognitionRef.current.start(); } catch { }
+          }
+        }
+      }, 800);
     }
   };
 
   const submitTurn = async (text) => {
-    if (!text || !text.trim()) return;
-    setMessages((prev) => [...prev, { id: Date.now(), role: 'user', text: text.trim() }]);
+    const clean = text.trim();
+    if (!clean || clean.length < 2) return;
+
+    // Prevent duplicate echo / re-submission of the same question
+    if (clean.toLowerCase() === lastSubmittedTextRef.current.toLowerCase()) {
+      return;
+    }
+    lastSubmittedTextRef.current = clean;
+
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch { }
+    }
+
+    setMessages((prev) => [...prev, { id: Date.now(), role: 'user', text: clean }]);
     setStatusText('Agent thinking...');
 
     try {
       const r = await api('/chat', 'POST', {
         callId: id,
-        text: text.trim(),
+        text: clean,
         name: callerName.trim() || undefined,
         budget: callerBudget.trim() || undefined,
       });
@@ -1027,31 +1050,25 @@ function CustomerCallView() {
       recognizer.lang = 'en-US';
 
       recognizer.onresult = (event) => {
-        // Full duplex barge-in: If caller starts speaking while agent is speaking, cut off agent speech immediately!
+        // If agent is speaking or in acoustic echo cooldown, discard completely to prevent echo repeating!
         if (isSpeakingRef.current) {
-          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-          if (activeAudioRef.current) {
-            try { activeAudioRef.current.pause(); } catch { }
-          }
-          setIsSpeaking(false);
-          isSpeakingRef.current = false;
+          return;
         }
 
         let transcript = '';
-        let isFinal = false;
         for (let i = 0; i < event.results.length; i++) {
           transcript += event.results[i][0].transcript + ' ';
-          if (event.results[i].isFinal) isFinal = true;
         }
         transcript = transcript.trim();
+        if (!transcript) return;
+
         latestTranscriptRef.current = transcript;
         setCurrentSpeech(transcript);
 
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        setStatusText('Listening...');
+        setStatusText('Listening... (pausing 5s to let you finish)');
 
-        // Normal call speed: when isFinal is true (speech paused), wait only 200ms before sending!
-        const waitMs = isFinal ? 200 : 700;
+        // Wait 5 seconds of silence so the user can comfortably finish their question without being cut off
         silenceTimerRef.current = setTimeout(() => {
           const textToSend = latestTranscriptRef.current.trim();
           if (textToSend && inCallRef.current && !isSpeakingRef.current) {
@@ -1059,7 +1076,7 @@ function CustomerCallView() {
             latestTranscriptRef.current = '';
             setCurrentSpeech('');
           }
-        }, waitMs);
+        }, 5000);
       };
 
       recognizer.onend = () => {
@@ -1404,11 +1421,11 @@ function CustomerCallView() {
               }}
               style={{ ...S.btn, flex: 1, background: '#0284c7' }}
             >
-              Send Now ⚡
+              Send Question Now ⚡
             </button>
           ) : (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 12, fontWeight: 600 }}>
-              {isSpeaking ? '🔊 Agent is speaking...' : '🎙️ Speak freely into mic'}
+              {isSpeaking ? '🔊 Agent is speaking...' : '🎙️ Speak freely (waits 5s after you pause)'}
             </div>
           )}
           <button type="button" onClick={handleEndCall} style={{ ...S.btn, flex: currentSpeech ? 1 : '0 0 130px', background: '#ef4444' }}>

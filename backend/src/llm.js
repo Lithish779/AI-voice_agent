@@ -1,5 +1,25 @@
 const AI = process.env.AI_URL || 'http://127.0.0.1:8000';
 
+function generateSpokenReply(userMsg, sysMsg) {
+  const lower = userMsg.toLowerCase();
+  if (lower.includes('pro') || lower.includes('cost') || lower.includes('price') || lower.includes('plan')) {
+    return "Our Pro plan is $199 per month for a 10kW solar system with Tesla Powerwall battery backup, and our Basic plan is $99 per month.";
+  }
+  if (lower.includes('warranty') || lower.includes('guarantee')) {
+    return "All our systems come with a comprehensive 25-year manufacturer warranty covering equipment, inverter, and labor.";
+  }
+  if (lower.includes('book') || lower.includes('demo') || lower.includes('schedule') || lower.includes('appointment')) {
+    return "I would be happy to book a solar demo for you! What date and time works best for your schedule?";
+  }
+  if (lower.includes('human') || lower.includes('manager') || lower.includes('person') || lower.includes('transfer')) {
+    return "I understand. Please hold while I connect you directly with a senior solar specialist.";
+  }
+  if (lower.includes('order') || lower.includes('status') || lower.includes('account')) {
+    return "I checked your account. Your solar permits are approved and installation is scheduled!";
+  }
+  return "Acme Solar provides full residential and commercial rooftop solar installations with 25-year warranties. How can I help you today?";
+}
+
 function fallbackLLM(messages, json) {
   const userMsg = messages.filter(m => m.role === 'user').pop()?.content || '';
   const sysMsg = messages.find(m => m.role === 'system')?.content || '';
@@ -44,50 +64,20 @@ function fallbackLLM(messages, json) {
     const bMatch = userMsg.match(/\$[\d,]+[kKmM]?/);
     if (bMatch) budget = bMatch[0];
 
+    const reply = generateSpokenReply(userMsg, sysMsg);
+
     return JSON.stringify({
+      reply,
       intent,
       sentiment: intent === "escalate" ? "negative" : "positive",
       language: "en",
-      lead: { name, need, budget, timeline: lower.includes('tomorrow') ? 'immediate' : null },
+      lead: { name, need: need || "Solar consultation", budget, timeline: lower.includes('tomorrow') ? 'immediate' : null },
       booking: { slot },
       lead_score,
     });
   }
 
-  // Spoken text generation
-  if (sysMsg.includes('BOOKING CONFIRMED')) {
-    const slotMatch = sysMsg.match(/BOOKING CONFIRMED for\s+([^\s]+)/);
-    let timeStr = 'tomorrow at 3:00 PM';
-    if (slotMatch) {
-      const d = new Date(slotMatch[1].replace(/\.$/, ''));
-      if (!isNaN(d)) timeStr = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + ' at ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-    return `You're all set! I have confirmed your demo for ${timeStr}. We've added this to our calendar and look forward to speaking with you!`;
-  }
-  if (sysMsg.includes('BOOKING:')) {
-    return "I would be happy to book a demo for you! What date and time works best for your schedule?";
-  }
-  if (sysMsg.includes('CUSTOMER RECORD:')) {
-    const recordMatch = sysMsg.match(/CUSTOMER RECORD:\s*(\{.*\})/);
-    if (recordMatch) {
-      try {
-        const rec = JSON.parse(recordMatch[1]);
-        return `Hello ${rec.name || 'there'}! I pulled up your account. Your order status is "${rec.orderStatus}" on the ${rec.plan || 'active'} plan.`;
-      } catch {}
-    }
-    return "I looked up your account. Your order is currently shipped and arriving this Friday!";
-  }
-  if (sysMsg.includes('Tell the caller you are transferring')) {
-    return "I understand your concern. Please hold while I transfer you directly to our senior specialist.";
-  }
-  if (sysMsg.includes('KNOWLEDGE:')) {
-    if (lower.includes('pro') || lower.includes('cost') || lower.includes('price')) {
-      return "Our Pro plan is $199 per month, which includes a 10kW solar system and full Tesla Powerwall battery backup. Would you like to schedule a quick demo?";
-    }
-    return "Our solar systems come with 25-year warranty coverage, professional installation, and 24/7 monitoring. Would you like to check available installation dates?";
-  }
-
-  return "Thank you for reaching out! How can I assist you with our solar plans or demo bookings today?";
+  return generateSpokenReply(userMsg, sysMsg);
 }
 
 export async function groq(messages, json = false) {
@@ -105,8 +95,8 @@ export async function groq(messages, json = false) {
       body: JSON.stringify({
         model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
         messages,
-        temperature: 0.1,
-        max_tokens: 160,
+        temperature: 0.2,
+        max_tokens: 380,
         ...(json && { response_format: { type: 'json_object' } }),
       }),
     });
