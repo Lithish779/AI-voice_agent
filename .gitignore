@@ -15,6 +15,10 @@ dist/
 # Model binaries (downloaded during docker build)
 *.onnx
 
+# Local convenience scripts
+start.sh
+stop.sh
+
 # System & Cache
 .DS_Store
 dump.rdb
